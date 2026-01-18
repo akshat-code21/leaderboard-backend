@@ -1,8 +1,10 @@
 package repository
 
 import (
+	"context"
 	"matiks/leaderboard/internal/models"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -76,4 +78,47 @@ func (r *UserRepository) CountUsersWithRating(rating int) (int64, error) {
 	var count int64
 	err := r.db.Model(&models.User{}).Where("rating = ?", rating).Count(&count).Error
 	return count, err
+}
+
+func (r *UserRepository) SyncUserToRedis(ctx context.Context, redisRepo *RedisRepository, user models.User) error {
+	return redisRepo.AddToLeaderboard(ctx, user.Username, user.Rating)
+}
+
+func (r *UserRepository) SyncAllUserToRedis(ctx context.Context, redisRepo *RedisRepository) error {
+	// Clear existing Redis data first
+	if err := redisRepo.client.Del(ctx, "leaderboard:ratings").Err(); err != nil {
+		return err
+	}
+
+	var users []models.User
+	if err := r.db.Order("rating DESC").Find(&users).Error; err != nil {
+		return err
+	}
+
+	if len(users) == 0 {
+		return nil
+	}
+
+	// Batch add to Redis (in chunks for large datasets)
+	batchSize := 1000
+	for i := 0; i < len(users); i += batchSize {
+		end := i + batchSize
+		if end > len(users) {
+			end = len(users)
+		}
+
+		zMembers := make([]redis.Z, 0, end-i)
+		for _, user := range users[i:end] {
+			zMembers = append(zMembers, redis.Z{
+				Score:  float64(user.Rating),
+				Member: user.Username,
+			})
+		}
+
+		if err := redisRepo.client.ZAdd(ctx, "leaderboard:ratings", zMembers...).Err(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

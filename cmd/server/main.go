@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"matiks/leaderboard/internal/config"
 	"matiks/leaderboard/internal/controllers"
@@ -26,13 +28,51 @@ func main() {
 		log.Fatal("Failed to run migrations:", err)
 	}
 
+	// Connect to Redis
+	redisClient, err := config.ConnectRedis()
+	if err != nil {
+		log.Printf("Warning: Failed to connect to Redis: %v (continuing without Redis)", err)
+		redisClient = nil
+	} else {
+		if err := redisClient.Ping(context.Background()).Err(); err != nil {
+			log.Printf("Warning: Redis ping failed: %v (continuing without Redis)", err)
+			redisClient = nil
+		} else {
+			log.Println("✅ Successfully connected to Redis")
+		}
+	}
+
 	// 3. Initialize layers (bottom to top)
 	// Repository layer
 	userRepo := repository.NewUserRepository(db)
 
+	// Initialize Redis repository (can be nil if Redis unavailable)
+	var redisRepo *repository.RedisRepository
+	if redisClient != nil {
+		redisRepo = repository.NewRedisRepository(redisClient)
+
+		// Sync data to Redis on startup (run in background)
+		go func() {
+			ctx := context.Background()
+			log.Println("🔄 Syncing database to Redis...")
+			if err := userRepo.SyncAllUserToRedis(ctx, redisRepo); err != nil {
+				log.Printf("⚠️  Failed to sync to Redis: %v", err)
+			} else {
+				count, err := redisRepo.GetTotalUsers(ctx)
+				if err != nil {
+					log.Printf("⚠️  Failed to get Redis count: %v", err)
+				} else {
+					log.Printf("✅ Successfully synced %d users to Redis", count)
+				}
+			}
+		}()
+	} else {
+		log.Println("⚠️  Running without Redis - using database only")
+	}
+
 	// Service layer
-	leaderboardServiceInterface := service.NewLeaderboardService(userRepo)
-	userServiceInterface := service.NewUserService(userRepo)
+	leaderboardServiceInterface := service.NewLeaderboardService(userRepo, redisRepo)
+	userServiceInterface := service.NewUserService(userRepo, redisRepo)
 
 	// Type assertions to get concrete types for controllers
 	leaderboardService, ok := leaderboardServiceInterface.(*service.LeaderboardService)
@@ -62,7 +102,17 @@ func main() {
 	// 6. Setup routes
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "healthy", "database": "connected"})
+		redisStatus := "disconnected"
+		if redisClient != nil {
+			if err := redisClient.Ping(context.Background()).Err(); err == nil {
+				redisStatus = "connected"
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "healthy",
+			"database": "connected",
+			"redis":    redisStatus,
+		})
 	})
 
 	// API routes
@@ -74,12 +124,32 @@ func main() {
 		// User routes
 		api.GET("/users/search", userHandler.SearchUsers)
 		api.GET("/users/:username/rank", userHandler.GetUserRank)
+
+		// Admin routes (for syncing Redis)
+		if redisRepo != nil {
+			api.POST("/admin/sync-redis", func(c *gin.Context) {
+				ctx := context.Background()
+				log.Println("🔄 Manual Redis sync triggered...")
+				if err := userRepo.SyncAllUserToRedis(ctx, redisRepo); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				count, _ := redisRepo.GetTotalUsers(ctx)
+				c.JSON(http.StatusOK, gin.H{
+					"message": "Redis synced successfully",
+					"count":   count,
+				})
+			})
+		}
 	}
 
 	// 7. Start server
-	port := ":8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Default for local development
+	}
 	log.Printf("🚀 Server starting on port %s", port)
-	if err := router.Run(port); err != nil {
+	if err := router.Run(":" + port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }

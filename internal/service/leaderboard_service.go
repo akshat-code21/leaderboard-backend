@@ -1,12 +1,17 @@
 package service
 
 import (
+	"context"
+	"log"
 	"matiks/leaderboard/internal/models"
 	"matiks/leaderboard/internal/repository"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type LeaderboardService struct {
-	userRepo *repository.UserRepository
+	userRepo  *repository.UserRepository
+	redisRepo *repository.RedisRepository
 }
 
 type leaderboardService interface {
@@ -15,7 +20,51 @@ type leaderboardService interface {
 }
 
 // GetLeaderboard implements [leaderboardService].
-func (l *LeaderboardService) GetLeaderboard(page int, limit int) (*models.LeaderboardResponse, error) {
+func (s *LeaderboardService) GetLeaderboard(page, limit int) (*models.LeaderboardResponse, error) {
+	if s.redisRepo == nil {
+		return s.getLeaderboardFromDB(page, limit)
+	}
+
+	ctx := context.Background()
+
+	offset := int64((page - 1) * limit)
+	limit64 := int64(limit)
+
+	totalRedis, err := s.redisRepo.GetTotalUsers(ctx)
+	if err != nil {
+		log.Printf("Redis check failed: %v, falling back to DB", err)
+		return s.getLeaderboardFromDB(page, limit)
+	}
+
+	if totalRedis == 0 {
+		log.Println("Redis is empty, falling back to DB")
+		return s.getLeaderboardFromDB(page, limit)
+	}
+
+	redisEntries, err := s.redisRepo.GetLeaderboard(ctx, offset, limit64)
+	if err != nil {
+		log.Printf("Redis GetLeaderboard failed: %v, falling back to DB", err)
+		return s.getLeaderboardFromDB(page, limit)
+	}
+
+	if len(redisEntries) == 0 {
+		log.Println("Redis returned empty results, falling back to DB")
+		return s.getLeaderboardFromDB(page, limit)
+	}
+
+	entries := s.convertRedisEntriesToLeaderboardEntries(redisEntries, offset)
+	log.Printf("✅ Redis leaderboard hit - page %d, limit %d, total %d", page, limit, totalRedis)
+
+	return &models.LeaderboardResponse{
+		Entries: entries,
+		Page:    page,
+		Limit:   limit,
+		Total:   int(totalRedis),
+	}, nil
+}
+
+func (l *LeaderboardService) getLeaderboardFromDB(page, limit int) (*models.LeaderboardResponse, error) {
+
 	if page < 1 {
 		page = 1
 	}
@@ -43,6 +92,7 @@ func (l *LeaderboardService) GetLeaderboard(page int, limit int) (*models.Leader
 		Limit:   limit,
 		Total:   int(total),
 	}, nil
+
 }
 
 // calculateRanks implements [leaderboardService].
@@ -63,6 +113,32 @@ func (l *LeaderboardService) calculateRanks(users []models.User) []models.Leader
 	return entries
 }
 
-func NewLeaderboardService(userRepo *repository.UserRepository) leaderboardService {
-	return &LeaderboardService{userRepo: userRepo}
+func NewLeaderboardService(userRepo *repository.UserRepository, redisRepo *repository.RedisRepository) leaderboardService {
+	return &LeaderboardService{
+		userRepo:  userRepo,
+		redisRepo: redisRepo,
+	}
+}
+
+func (s *LeaderboardService) convertRedisEntriesToLeaderboardEntries(redisEntries []redis.Z, offset int64) []models.LeaderboardEntry {
+	entries := make([]models.LeaderboardEntry, 0, len(redisEntries))
+
+	// ZRevRangeWithScores returns in descending order (highest score first)
+	// Calculate ranks with tie-aware logic
+	currentRank := int(offset) + 1
+
+	for i, entry := range redisEntries {
+		// If previous entry had different rating, update rank
+		if i > 0 && redisEntries[i-1].Score != entry.Score {
+			currentRank = int(offset) + i + 1
+		}
+
+		entries = append(entries, models.LeaderboardEntry{
+			Rank:     currentRank,
+			Username: entry.Member.(string),
+			Rating:   int(entry.Score),
+		})
+	}
+
+	return entries
 }
