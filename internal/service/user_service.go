@@ -29,23 +29,33 @@ func (s *UserService) SearchUsers(query string, limit int) (*models.UserSearchRe
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("limit must be between 1 and 100")
 	}
+
 	users, err := s.UserRepository.SearchUsers(query, limit)
 	if err != nil {
 		return nil, err
 	}
+
+	ctx := context.Background()
 	entries := make([]models.LeaderboardEntry, 0)
+
 	for _, user := range users {
-		// Calculate rank for each user
-		rank, err := s.calculateUserRank(user.Rating)
+		// Calculate rank using Redis (much faster than DB COUNT queries)
+		rank, err := s.calculateUserRankFromRedis(ctx, user.Rating)
 		if err != nil {
-			return nil, err
+			// Fallback to DB if Redis fails
+			rank, err = s.calculateUserRank(user.Rating)
+			if err != nil {
+				return nil, err
+			}
 		}
+
 		entries = append(entries, models.LeaderboardEntry{
 			Rank:     rank,
 			Username: user.Username,
 			Rating:   user.Rating,
 		})
 	}
+
 	return &models.UserSearchResponse{Users: entries, Count: len(entries)}, nil
 }
 
