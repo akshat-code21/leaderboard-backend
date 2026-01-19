@@ -13,7 +13,7 @@ type UserService struct {
 }
 
 type userService interface {
-	SearchUsers(query string, limit int) (*models.UserSearchResponse, error)
+	SearchUsers(query string, page, limit int) (*models.UserSearchResponse, error)
 	GetUserRank(username string) (*models.UserRankResponse, error)
 }
 
@@ -22,15 +22,25 @@ func NewUserService(userRepository *repository.UserRepository, redisRepo *reposi
 
 }
 
-func (s *UserService) SearchUsers(query string, limit int) (*models.UserSearchResponse, error) {
+func (s *UserService) SearchUsers(query string, page, limit int) (*models.UserSearchResponse, error) {
 	if query == "" {
 		return nil, errors.New("query is required")
+	}
+	if page < 1 {
+		page = 1
 	}
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("limit must be between 1 and 100")
 	}
 
-	users, err := s.UserRepository.SearchUsers(query, limit)
+	// Get paginated users
+	users, err := s.UserRepository.SearchUsers(query, page, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get total count
+	total, err := s.UserRepository.CountSearchUsers(query)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +66,12 @@ func (s *UserService) SearchUsers(query string, limit int) (*models.UserSearchRe
 		})
 	}
 
-	return &models.UserSearchResponse{Users: entries, Count: len(entries)}, nil
+	return &models.UserSearchResponse{
+		Users: entries,
+		Page:  page,
+		Limit: limit,
+		Total: int(total),
+	}, nil
 }
 
 func (s *UserService) GetUserRank(username string) (*models.UserRankResponse, error) {

@@ -34,18 +34,30 @@ func (r *UserRepository) GetLeaderboard(page, limit int) ([]models.User, error) 
 	return users, err
 }
 
-// SearchUsers searches for users by username pattern (case-insensitive)
-func (r *UserRepository) SearchUsers(query string, limit int) ([]models.User, error) {
+// SearchUsers searches for users by username pattern (case-insensitive) with pagination
+func (r *UserRepository) SearchUsers(query string, page, limit int) ([]models.User, error) {
 	var users []models.User
 	pattern := "%" + query + "%"
+	offset := (page - 1) * limit
 
 	err := r.db.
 		Where("username ILIKE ?", pattern).
 		Order("rating DESC").
 		Limit(limit).
+		Offset(offset).
 		Find(&users).Error
 
 	return users, err
+}
+
+// CountSearchUsers counts total users matching the search query
+func (r *UserRepository) CountSearchUsers(query string) (int64, error) {
+	var count int64
+	pattern := "%" + query + "%"
+	err := r.db.Model(&models.User{}).
+		Where("username ILIKE ?", pattern).
+		Count(&count).Error
+	return count, err
 }
 
 // GetUserByUsername retrieves a single user by username
@@ -110,11 +122,11 @@ func (r *UserRepository) SyncAllUserToRedis(ctx context.Context, redisRepo *Redi
 
 		zMembers := make([]redis.Z, 0, end-i)
 		for _, user := range users[i:end] {
-			zMembers = append(zMembers, redis.Z{
-				Score:  float64(user.Rating),
-				Member: user.Username,
-			})
-		}
+		zMembers = append(zMembers, redis.Z{
+			Score:  float64(user.Rating),
+			Member: user.Username,
+		})
+	}
 
 		if err := redisRepo.client.ZAdd(ctx, "leaderboard:ratings", zMembers...).Err(); err != nil {
 			return err

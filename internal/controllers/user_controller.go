@@ -14,14 +14,17 @@ func NewUserController(userService *service.UserService) *UserController {
 	return &UserController{userService: userService}
 }
 
-func (c *UserController) SearchUsers(query string, limit int) (*models.UserSearchResponse, error) {
+func (c *UserController) SearchUsers(query string, page, limit int) (*models.UserSearchResponse, error) {
 	if query == "" {
 		return nil, errors.New("query is required")
+	}
+	if page < 1 {
+		page = 1
 	}
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("limit must be between 1 and 100")
 	}
-	response, err := c.userService.SearchUsers(query, limit)
+	response, err := c.userService.SearchUsers(query, page, limit)
 	if err != nil {
 		return nil, err
 	}

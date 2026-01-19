@@ -30,7 +30,9 @@ type LeaderboardResponse struct {
 // UserSearchResponse represents the user search response
 type UserSearchResponse struct {
 	Users []LeaderboardEntry `json:"users"`
-	Count int                `json:"count"`
+	Page  int                `json:"page"`
+	Limit int                `json:"limit"`
+	Total int                `json:"total"`
 }
 
 // UserRankResponse represents a single user's rank information

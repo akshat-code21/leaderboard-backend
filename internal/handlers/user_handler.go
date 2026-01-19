@@ -26,6 +26,12 @@ func (h *UserHandler) SearchUsers(c *gin.Context) {
 		return
 	}
 
+	pageStr := c.DefaultQuery("page", "1")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+
 	limitStr := c.DefaultQuery("limit", "50")
 	limit, err := strconv.Atoi(limitStr)
 	if err != nil || limit < 1 || limit > 100 {
@@ -33,7 +39,7 @@ func (h *UserHandler) SearchUsers(c *gin.Context) {
 	}
 
 	// 2. Call controller
-	response, err := h.controller.SearchUsers(query, limit)
+	response, err := h.controller.SearchUsers(query, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search users"})
 		return
