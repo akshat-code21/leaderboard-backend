@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"matiks/leaderboard/internal/models"
 
 	"github.com/redis/go-redis/v9"
@@ -121,4 +122,41 @@ func (r *UserRepository) SyncAllUserToRedis(ctx context.Context, redisRepo *Redi
 	}
 
 	return nil
+}
+
+// UpdateUserRating updates a user's rating in the database
+func (r *UserRepository) UpdateUserRating(ctx context.Context, username string, newRating int) error {
+	// Validate rating range
+	if newRating < 100 || newRating > 5000 {
+		return fmt.Errorf("rating must be between 100 and 5000")
+	}
+
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("username = ?", username).
+		Update("rating", newRating)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found: %s", username)
+	}
+
+	return nil
+}
+
+// GetRandomUsers retrieves random users for simulation
+func (r *UserRepository) GetRandomUsers(ctx context.Context, count int) ([]models.User, error) {
+	var users []models.User
+
+	// Use PostgreSQL's TABLESAMPLE for efficient random sampling
+	err := r.db.WithContext(ctx).
+		Table("users").
+		Order("RANDOM()").
+		Limit(count).
+		Find(&users).Error
+
+	return users, err
 }

@@ -53,7 +53,7 @@ func (s *LeaderboardService) GetLeaderboard(page, limit int) (*models.Leaderboar
 	}
 
 	entries := s.convertRedisEntriesToLeaderboardEntries(redisEntries, offset)
-	log.Printf("✅ Redis leaderboard hit - page %d, limit %d, total %d", page, limit, totalRedis)
+	log.Printf("Redis leaderboard hit - page %d, limit %d, total %d", page, limit, totalRedis)
 
 	return &models.LeaderboardResponse{
 		Entries: entries,

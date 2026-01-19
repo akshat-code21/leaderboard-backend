@@ -35,7 +35,7 @@ func ConnectDB() (*gorm.DB, error) {
 	// Store the DB instance globally
 	DB = db
 
-	log.Println("✅ Successfully connected to database")
+	log.Println("Successfully connected to database")
 	return db, nil
 }
 

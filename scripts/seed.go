@@ -20,7 +20,7 @@ const (
 )
 
 func main() {
-	log.Println("🌱 Starting database seeding...")
+	log.Println("Starting database seeding...")
 
 	// 1. Connect to database
 	db, err := config.ConnectDB()
@@ -37,14 +37,14 @@ func main() {
 	var count int64
 	db.Model(&models.User{}).Count(&count)
 	if count > 0 {
-		log.Printf("⚠️  Database already contains %d users", count)
+		log.Printf("Database already contains %d users", count)
 		log.Println("Do you want to clear existing data and reseed? (y/n)")
 		var response string
 		fmt.Scanln(&response)
 		if response == "y" || response == "Y" {
-			log.Println("🗑️  Clearing existing users...")
+			log.Println("Clearing existing users...")
 			db.Exec("TRUNCATE TABLE users RESTART IDENTITY CASCADE")
-			log.Println("✅ Existing users cleared")
+			log.Println("Existing users cleared")
 		} else {
 			log.Println("Seeding cancelled. Exiting...")
 			return
@@ -52,23 +52,23 @@ func main() {
 	}
 
 	// 4. Seed users
-	log.Printf("📊 Generating %d users...", totalUsers)
+	log.Printf("Generating %d users...", totalUsers)
 	startTime := time.Now()
 
 	users := generateUsers(totalUsers)
 
-	log.Printf("💾 Inserting users in batches of %d...", batchSize)
+	log.Printf("Inserting users in batches of %d...", batchSize)
 	if err := insertUsersInBatches(db, users, batchSize); err != nil {
 		log.Fatal("Failed to insert users:", err)
 	}
 
 	elapsed := time.Since(startTime)
-	log.Printf("✅ Successfully seeded %d users in %v", totalUsers, elapsed)
+	log.Printf("Successfully seeded %d users in %v", totalUsers, elapsed)
 
 	// 5. Verify seeding
 	var finalCount int64
 	db.Model(&models.User{}).Count(&finalCount)
-	log.Printf("📈 Total users in database: %d", finalCount)
+	log.Printf("Total users in database: %d", finalCount)
 
 	// 6. Show some statistics
 	showStatistics(db)
@@ -199,7 +199,7 @@ func insertUsersInBatches(db *gorm.DB, users []models.User, batchSize int) error
 		}
 
 		if batchNum%10 == 0 || batchNum == totalBatches {
-			log.Printf("  ✓ Inserted batch %d/%d (%d users)", batchNum, totalBatches, end)
+			log.Printf("Inserted batch %d/%d (%d users)", batchNum, totalBatches, end)
 		}
 	}
 
@@ -208,7 +208,7 @@ func insertUsersInBatches(db *gorm.DB, users []models.User, batchSize int) error
 
 // showStatistics displays some statistics about the seeded data
 func showStatistics(db *gorm.DB) {
-	log.Println("\n📊 Database Statistics:")
+	log.Println("\nDatabase Statistics:")
 
 	// Total users
 	var totalCount int64
@@ -261,6 +261,6 @@ func showStatistics(db *gorm.DB) {
 		}
 	}
 
-	log.Println("\n✅ Seeding completed successfully!")
-	log.Println("🚀 You can now start the server with: go run cmd/server/main.go")
+	log.Println("\nSeeding completed successfully!")
+	log.Println("You can now start the server with: go run cmd/server/main.go")
 }

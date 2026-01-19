@@ -35,6 +35,6 @@ func AutoMigrate(db *gorm.DB) error {
 		log.Printf("Warning: Failed to create rating index (may already exist): %v", err)
 	}
 
-	log.Println("✅ Database migrations completed successfully")
+	log.Println("Database migrations completed successfully")
 	return nil
 }
